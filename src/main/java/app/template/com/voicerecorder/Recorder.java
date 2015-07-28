@@ -6,7 +6,8 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Environment;
 import android.os.Handler;
-import android.widget.Toast;
+import android.text.TextUtils;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -19,73 +20,58 @@ import java.util.Date;
 /**
  * Created by Mateusz M. on 2015-04-26.
  */
+
+/**
+ * Class that recording and saving data in file.
+ * File parameters:
+ * extension .wav
+ * Records sample rate 8000:
+ * Records channel: 1
+ * Records encoding: PCM 16 bit
+ */
 public class Recorder {
     private static final int RECORDER_BPP = 16;
-    private static final String AUDIO_RECORDER_FILE_EXT_WAV = ".wav";
-    private static final String AUDIO_RECORDER_FOLDER = "/'/'";
+    private static final String FILE_NAME_EXTENSION = ".wav";
     private static final String AUDIO_RECORDER_TEMP_FILE = "record_temp.raw";
     private static final int RECORDER_SAMPLE_RATE = 8000;
     private static final int RECORDER_CHANNELS = AudioFormat.CHANNEL_IN_MONO;
     private static final int RECORDER_AUDIO_ENCODING = AudioFormat.ENCODING_PCM_16BIT;
 
     private AudioRecord recorder = null;
-    private int bufferSize = 0;
-    private Thread recordingThread = null;
-    private boolean isRecording = false;
-    public static File file;
-    private Context context;
-    public String finalSoundPath = null;
-    Handler handler;
 
-    public static String filename;
+    private File file;
+    private Handler handler;
+    private Context context;
+    private Thread recordingThread = null;
+
+    private int bufferSize = 0;
+    private boolean isRecording = false;
+    private String lastRecordFilePath = "";
+
+    private String filename;
     private double amplitude;
+    private String date_pattern_format;
+    private String recordsFolder;
+    private String filePrefix;
 
     public Recorder(Context context) {
+        init(context, new ConfigurationRecorder().getConfiguration());
+    }
+
+    public Recorder(Context context, ConfigurationRecorder configurationRecorder) {
+        init(context, configurationRecorder);
+    }
+
+    private void init(Context context, ConfigurationRecorder configurationRecorder) {
         this.context = context;
+        this.recordsFolder = configurationRecorder.getRecordsFolder();
+        this.date_pattern_format = configurationRecorder.getFileDatePattern();
+        this.filePrefix = configurationRecorder.getFilePrefix();
     }
 
-    public File getFileToOverwrite() {
-        File tempPicFile = null;
-        String ext_storage_state = Environment.getExternalStorageState();
-        File mediaStorage = new File(Environment.getExternalStorageDirectory() + "/VOICEPIN/SOUNDS");
-
-        if (ext_storage_state.equalsIgnoreCase(Environment.MEDIA_MOUNTED)) {
-
-            if (!mediaStorage.exists()) {
-                mediaStorage.mkdirs();
-            }
-
-            String timeStamp = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")
-                    .format(new Date());
-
-            tempPicFile = new File(mediaStorage.getPath() + File.separator
-                    + "audio_" + timeStamp + AUDIO_RECORDER_FILE_EXT_WAV);
-
-            file = tempPicFile;
-        } else {
-            Toast.makeText(context, "NO SDCARD MOUNTED", Toast.LENGTH_LONG).show();
-        }
-
-        return tempPicFile;
-    }
-
-    public String getTempFilename() {
-        String filepath = Environment.getExternalStorageDirectory().getPath();
-
-        File file = new File(filepath, AUDIO_RECORDER_FOLDER);
-        if (!file.exists()) {
-            file.mkdirs();
-        }
-
-        File tempFile = new File(filepath, AUDIO_RECORDER_TEMP_FILE);
-
-        if (tempFile.exists()) {
-            tempFile.delete();
-        }
-
-        return (file.getAbsolutePath() + "/" + AUDIO_RECORDER_TEMP_FILE);
-    }
-
+    /**
+     * Start recording only if recorder is not recording at the moment.
+     */
     public void startRecording() {
         if (!isRecording) {
             handler = new Handler();
@@ -116,6 +102,103 @@ public class Recorder {
         }
     }
 
+    /**
+     * Stop recording and saving data to file if Recorder is recording.
+     *
+     * @return Return full record file path that is finished recording. If records is not finished recording or startRecording never called then returning empty string.
+     */
+    public String stopRecording() {
+        if (isRecording) {
+            String filePath = getFileToOverwrite().getAbsolutePath();
+            lastRecordFilePath = filePath;
+            isRecording = false;
+            if (null != recorder) {
+
+                recorder.stop();
+                recorder.release();
+
+                recorder = null;
+                recordingThread = null;
+            }
+
+            copyWaveFile(getTempFilename(), filePath);
+            deleteTempFile();
+            return lastRecordFilePath;
+        } else {
+            return "";
+        }
+    }
+
+    /**
+     * Returns full record file path that
+     *
+     * @return Return last full record file path which was recorded.
+     */
+    public String getLastRecordFilePath() {
+        return lastRecordFilePath;
+    }
+
+    /**
+     * Returns state of recorder. If recorder is actal recording return true.
+     *
+     * @return boolean flag. If recorder actual recording then returns true else return false
+     */
+    public boolean isRecording() {
+        return isRecording;
+    }
+
+    /**
+     * Return amplitude that represents intensity voice. Range value <0,30>
+     *
+     * @return returns double value of intensity voice.
+     */
+    public double getAmplitude() {
+        return amplitude;
+    }
+
+    private File getFileToOverwrite() {
+        File tempPicFile = null;
+        String ext_storage_state = Environment.getExternalStorageState();
+        File mediaStorage = new File(Environment.getExternalStorageDirectory() + recordsFolder);
+
+        if (ext_storage_state.equalsIgnoreCase(Environment.MEDIA_MOUNTED)) {
+
+            if (!mediaStorage.exists()) {
+                mediaStorage.mkdirs();
+            }
+
+            String timeStamp = new SimpleDateFormat(date_pattern_format)
+                    .format(new Date());
+
+            tempPicFile = new File(mediaStorage.getPath() + File.separator
+                    + filePrefix + timeStamp + FILE_NAME_EXTENSION);
+
+            file = tempPicFile;
+        } else {
+            Log.e("Recorder", "No mounted storage");
+
+        }
+
+        return tempPicFile;
+    }
+
+    private String getTempFilename() {
+        String filepath = Environment.getExternalStorageDirectory().getPath();
+
+        File file = new File(filepath, "/'/'");
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+
+        File tempFile = new File(filepath, AUDIO_RECORDER_TEMP_FILE);
+
+        if (tempFile.exists()) {
+            tempFile.delete();
+        }
+
+        return (file.getAbsolutePath() + "/" + AUDIO_RECORDER_TEMP_FILE);
+    }
+
     private void writeDataToFile() {
         final byte data[] = new byte[bufferSize];
 
@@ -128,7 +211,7 @@ public class Recorder {
             e.printStackTrace();
         }
 
-        int read,sum;
+        int read, sum;
 
         if (null != os) {
             while (isRecording) {
@@ -138,7 +221,10 @@ public class Recorder {
                     for (byte b : data) {
                         sum += b * b;
                     }
-                    amplitude = Math.sqrt(sum / read);
+                    if (read != 0) {
+                        amplitude = Math.sqrt(sum / read);
+                    }
+
                     try {
                         os.write(data);
                     } catch (IOException e) {
@@ -153,23 +239,6 @@ public class Recorder {
                 e.printStackTrace();
             }
         }
-    }
-
-    public void stopRecording() {
-        String filePath = getFileToOverwrite().getAbsolutePath();
-        finalSoundPath = filePath;
-        if (null != recorder) {
-            isRecording = false;
-
-            recorder.stop();
-            recorder.release();
-
-            recorder = null;
-            recordingThread = null;
-        }
-
-        copyWaveFile(getTempFilename(), filePath);
-        deleteTempFile();
     }
 
     private void deleteTempFile() {
@@ -194,7 +263,7 @@ public class Recorder {
             totalAudioLen = in.getChannel().size();
             totalDataLen = totalAudioLen + 36;
 
-            WriteWaveFileHeader(out, totalAudioLen, totalDataLen,
+            writeWaveFileHeader(out, totalAudioLen, totalDataLen,
                     longSampleRate, channels, byteRate);
 
             while (in.read(data) != -1) {
@@ -203,21 +272,16 @@ public class Recorder {
 
             in.close();
             out.close();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();//TODO: handle error
         } catch (IOException e) {
-            e.printStackTrace();//TODO: handle error
+            e.printStackTrace();
         }
     }
 
-    private void WriteWaveFileHeader(
-            FileOutputStream out, long totalAudioLen,
-            long totalDataLen, long longSampleRate, int channels,
-            long byteRate) throws IOException {
+    private void writeWaveFileHeader(FileOutputStream out, long totalAudioLen, long totalDataLen, long longSampleRate, int channels, long byteRate) throws IOException {
 
         byte[] header = new byte[44];
 
-        header[0] = 'R';  // RIFF/WAVE header
+        header[0] = 'R';
         header[1] = 'I';
         header[2] = 'F';
         header[3] = 'F';
@@ -229,15 +293,15 @@ public class Recorder {
         header[9] = 'A';
         header[10] = 'V';
         header[11] = 'E';
-        header[12] = 'f';  // 'fmt ' chunk
+        header[12] = 'f';
         header[13] = 'm';
         header[14] = 't';
         header[15] = ' ';
-        header[16] = 16;  // 4 bytes: size of 'fmt ' chunk
+        header[16] = 16;
         header[17] = 0;
         header[18] = 0;
         header[19] = 0;
-        header[20] = 1;  // format = 1
+        header[20] = 1;
         header[21] = 0;
         header[22] = (byte) channels;
         header[23] = 0;
@@ -249,9 +313,9 @@ public class Recorder {
         header[29] = (byte) ((byteRate >> 8) & 0xff);
         header[30] = (byte) ((byteRate >> 16) & 0xff);
         header[31] = (byte) ((byteRate >> 24) & 0xff);
-        header[32] = (byte) (RECORDER_BPP * RECORDER_SAMPLE_RATE / 8);  // block align
+        header[32] = (byte) (RECORDER_BPP * RECORDER_SAMPLE_RATE / 8);
         header[33] = 0;
-        header[34] = RECORDER_BPP;  // bits per sample
+        header[34] = RECORDER_BPP;
         header[35] = 0;
         header[36] = 'd';
         header[37] = 'a';
@@ -265,16 +329,84 @@ public class Recorder {
         out.write(header, 0, 44);
     }
 
-    public String getFinalRecordFilePath() {
-        return finalSoundPath;
-    }
+    /**
+     * ConfigurationRecorder class use for congure records params like file prefix name,
+     * records file folders where records are saving, file name date format.
+     */
+    public static class ConfigurationRecorder {
+        private String recordsFolder;
+        private String fileDatePattern;
+        private String filePrefix;
 
-    public boolean isRecording() {
-        return isRecording;
-    }
+        /**
+         * Set records file folder that will contain all records.
+         *
+         * @return object builder
+         */
+        public ConfigurationRecorder setRecordsFolder(String recordsFolder) {
+            this.recordsFolder = recordsFolder;
+            return this;
+        }
 
-    public double getAmplitude() {
-        return amplitude;
+        /**
+         * Set name date pattern. This pattern is middle part of file name.
+         *
+         * @param fileDatePattern Date pattern format same in {@link java.text.DateFormat}
+         * @return {@link app.template.com.voicerecorder.Recorder.ConfigurationRecorder}
+         */
+        public ConfigurationRecorder setFileDatePattern(String fileDatePattern) {
+            this.fileDatePattern = fileDatePattern;
+            return this;
+        }
+
+        /**
+         * Setup file name prefix.
+         *
+         * @return object builder
+         */
+        public ConfigurationRecorder setFilePrefix(String filePrefix) {
+            this.filePrefix = filePrefix;
+            return this;
+        }
+
+        /**
+         * Returns configuration for {@link Recorder} object.
+         *
+         * @return {@link app.template.com.voicerecorder.Recorder.ConfigurationRecorder}
+         */
+        public ConfigurationRecorder getConfiguration() {
+            return this;
+        }
+
+
+        /**
+         * Return records file folder that will contain all records.
+         *
+         * @return Return {@link String} that is path contain records
+         */
+        public String getRecordsFolder() {
+            return TextUtils.isEmpty(recordsFolder) ? "" : recordsFolder;
+        }
+
+        /**
+         * Return date pattern format same in {@link java.text.DateFormat}
+         * which will be used for build record name.
+         *
+         * @return Return {@link String} that is middle part of record name.
+         */
+        public String getFileDatePattern() {
+            return TextUtils.isEmpty(fileDatePattern) ? "yyyy_MM_dd_HH_mm_ss" : fileDatePattern;
+        }
+
+        /**
+         * Returns prefix String that will be used in building records name.
+         *
+         * @return Return {@link String} that is first part of record name.
+         */
+        public String getFilePrefix() {
+            return TextUtils.isEmpty(filePrefix) ? "" : filePrefix;
+        }
+
     }
 }
 
