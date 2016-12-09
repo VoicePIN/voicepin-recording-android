@@ -1,11 +1,9 @@
 package app.template.com.voicerecorder;
 
-import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Environment;
-import android.os.Handler;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -39,9 +37,6 @@ public class Recorder {
 
     private AudioRecord recorder = null;
 
-    private File file;
-    private Handler handler;
-    private Context context;
     private Thread recordingThread = null;
 
     private int bufferSize = 0;
@@ -53,20 +48,37 @@ public class Recorder {
     private String date_pattern_format;
     private String recordsFolder;
     private String filePrefix;
+    private String configFileName;
 
-    public Recorder(Context context) {
-        init(context, new ConfigurationRecorder().getConfiguration());
+    public Recorder() {
+        init(new ConfigurationRecorder().getConfiguration());
     }
 
-    public Recorder(Context context, ConfigurationRecorder configurationRecorder) {
-        init(context, configurationRecorder);
+    public Recorder(ConfigurationRecorder configurationRecorder) {
+        init(configurationRecorder);
     }
 
-    private void init(Context context, ConfigurationRecorder configurationRecorder) {
-        this.context = context;
+    private void init(ConfigurationRecorder configurationRecorder) {
         this.recordsFolder = configurationRecorder.getRecordsFolder();
         this.date_pattern_format = configurationRecorder.getFileDatePattern();
         this.filePrefix = configurationRecorder.getFilePrefix();
+        this.configFileName = configurationRecorder.fileName;
+
+        bufferSize = AudioRecord.getMinBufferSize(
+                RECORDER_SAMPLE_RATE
+                , RECORDER_CHANNELS
+                , RECORDER_AUDIO_ENCODING);
+
+        initRecorder();
+    }
+
+    private void initRecorder() {
+        recorder = new AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION
+                , RECORDER_SAMPLE_RATE
+                , RECORDER_CHANNELS
+                , RECORDER_AUDIO_ENCODING
+                , bufferSize);
     }
 
     /**
@@ -74,19 +86,6 @@ public class Recorder {
      */
     public void startRecording() {
         if (!isRecording) {
-            handler = new Handler();
-
-            bufferSize = AudioRecord.getMinBufferSize(
-                    RECORDER_SAMPLE_RATE
-                    , RECORDER_CHANNELS
-                    , RECORDER_AUDIO_ENCODING);
-
-            recorder = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC
-                    , RECORDER_SAMPLE_RATE
-                    , RECORDER_CHANNELS
-                    , RECORDER_AUDIO_ENCODING
-                    , bufferSize);
 
             recorder.startRecording();
             isRecording = true;
@@ -109,15 +108,14 @@ public class Recorder {
      */
     public String stopRecording() {
         if (isRecording) {
+            isRecording = false;
             String filePath = getFileToOverwrite().getAbsolutePath();
             lastRecordFilePath = filePath;
-            isRecording = false;
             if (null != recorder) {
-
                 recorder.stop();
                 recorder.release();
 
-                recorder = null;
+                initRecorder();
                 recordingThread = null;
             }
 
@@ -166,14 +164,16 @@ public class Recorder {
             if (!mediaStorage.exists()) {
                 mediaStorage.mkdirs();
             }
-
-            String timeStamp = new SimpleDateFormat(date_pattern_format)
-                    .format(new Date());
+            String timeStamp;
+            if (!TextUtils.isEmpty(date_pattern_format)) {
+                timeStamp = new SimpleDateFormat(date_pattern_format)
+                        .format(new Date());
+            }else {
+                timeStamp = configFileName;
+            }
 
             tempPicFile = new File(mediaStorage.getPath() + File.separator
                     + filePrefix + timeStamp + FILE_NAME_EXTENSION);
-
-            file = tempPicFile;
         } else {
             Log.e("Recorder", "No mounted storage");
 
@@ -337,6 +337,7 @@ public class Recorder {
         private String recordsFolder;
         private String fileDatePattern;
         private String filePrefix;
+        private String fileName;
 
         /**
          * Set records file folder that will contain all records.
@@ -352,7 +353,7 @@ public class Recorder {
          * Set name date pattern. This pattern is middle part of file name.
          *
          * @param fileDatePattern Date pattern format same in {@link java.text.DateFormat}
-         * @return {@link app.template.com.voicerecorder.Recorder.ConfigurationRecorder}
+         * @return {@link Recorder.ConfigurationRecorder}
          */
         public ConfigurationRecorder setFileDatePattern(String fileDatePattern) {
             this.fileDatePattern = fileDatePattern;
@@ -372,7 +373,7 @@ public class Recorder {
         /**
          * Returns configuration for {@link Recorder} object.
          *
-         * @return {@link app.template.com.voicerecorder.Recorder.ConfigurationRecorder}
+         * @return {@link Recorder.ConfigurationRecorder}
          */
         public ConfigurationRecorder getConfiguration() {
             return this;
@@ -395,7 +396,7 @@ public class Recorder {
          * @return Return {@link String} that is middle part of record name.
          */
         public String getFileDatePattern() {
-            return TextUtils.isEmpty(fileDatePattern) ? "yyyy_MM_dd_HH_mm_ss" : fileDatePattern;
+            return TextUtils.isEmpty(fileDatePattern) ? "" : fileDatePattern;
         }
 
         /**
@@ -407,6 +408,10 @@ public class Recorder {
             return TextUtils.isEmpty(filePrefix) ? "" : filePrefix;
         }
 
+        public ConfigurationRecorder setFileName(String fileName) {
+            this.fileName = fileName;
+            return this;
+        }
     }
 }
 
