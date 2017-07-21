@@ -20,18 +20,21 @@ import java.util.Date;
  */
 
 /**
- * Class that recording and saving data in file.
- * File parameters:
- * extension .wav
- * Records sample rate 8000:
- * Records channel: 1
- * Records encoding: PCM 16 bit
+ * Records microphone input and saves data in a file.
+ * Audio file parameters:
+ *
+ * <ul>
+ *     <li>Extension: {@value FILE_NAME_EXTENSION}</li>
+ *     <li>Sample rate (Hz): {@value RECORDER_SAMPLE_RATE}</li>
+ *     <li>Channels: {@value RECORDER_CHANNELS}</li>
+ *     <li>Encoding: PCM 16 bit</li>
+ * </ul>
  */
 public class Recorder {
     private static final int RECORDER_BPP = 16;
     private static final String FILE_NAME_EXTENSION = ".wav";
     private static final String AUDIO_RECORDER_TEMP_FILE = "record_temp.raw";
-    private static final int RECORDER_SAMPLE_RATE = 8000;
+    private static final int RECORDER_SAMPLE_RATE = 16000;
     private static final int RECORDER_CHANNELS = AudioFormat.CHANNEL_IN_MONO;
     private static final int RECORDER_AUDIO_ENCODING = AudioFormat.ENCODING_PCM_16BIT;
 
@@ -43,7 +46,6 @@ public class Recorder {
     private boolean isRecording = false;
     private String lastRecordFilePath = "";
 
-    private String filename;
     private double amplitude;
     private String date_pattern_format;
     private String recordsFolder;
@@ -51,7 +53,7 @@ public class Recorder {
     private String configFileName;
 
     public Recorder() {
-        init(new ConfigurationRecorder().getConfiguration());
+        init(new ConfigurationRecorder());
     }
 
     public Recorder(ConfigurationRecorder configurationRecorder) {
@@ -59,33 +61,29 @@ public class Recorder {
     }
 
     private void init(ConfigurationRecorder configurationRecorder) {
-        this.recordsFolder = configurationRecorder.getRecordsFolder();
-        this.date_pattern_format = configurationRecorder.getFileDatePattern();
-        this.filePrefix = configurationRecorder.getFilePrefix();
+        this.recordsFolder = configurationRecorder.directory;
+        this.date_pattern_format = configurationRecorder.datePattern;
+        this.filePrefix = configurationRecorder.prefix;
         this.configFileName = configurationRecorder.fileName;
-
-        bufferSize = AudioRecord.getMinBufferSize(
-                RECORDER_SAMPLE_RATE
-                , RECORDER_CHANNELS
-                , RECORDER_AUDIO_ENCODING);
-
-        initRecorder();
-    }
-
-    private void initRecorder() {
-        recorder = new AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION
-                , RECORDER_SAMPLE_RATE
-                , RECORDER_CHANNELS
-                , RECORDER_AUDIO_ENCODING
-                , bufferSize);
     }
 
     /**
-     * Start recording only if recorder is not recording at the moment.
+     * Starts recording.
      */
     public void startRecording() {
         if (!isRecording) {
+
+            bufferSize = AudioRecord.getMinBufferSize(
+                    RECORDER_SAMPLE_RATE
+                    , RECORDER_CHANNELS
+                    , RECORDER_AUDIO_ENCODING);
+
+            recorder = new AudioRecord(
+                    MediaRecorder.AudioSource.MIC
+                    , RECORDER_SAMPLE_RATE
+                    , RECORDER_CHANNELS
+                    , RECORDER_AUDIO_ENCODING
+                    , bufferSize);
 
             recorder.startRecording();
             isRecording = true;
@@ -102,20 +100,21 @@ public class Recorder {
     }
 
     /**
-     * Stop recording and saving data to file if Recorder is recording.
+     * Stops recording.
      *
-     * @return Return full record file path that is finished recording. If records is not finished recording or startRecording never called then returning empty string.
+     * @return file path to recording if it was started, null otherwise
      */
     public String stopRecording() {
         if (isRecording) {
-            isRecording = false;
             String filePath = getFileToOverwrite().getAbsolutePath();
             lastRecordFilePath = filePath;
+            isRecording = false;
             if (null != recorder) {
+
                 recorder.stop();
                 recorder.release();
 
-                initRecorder();
+                recorder = null;
                 recordingThread = null;
             }
 
@@ -128,27 +127,21 @@ public class Recorder {
     }
 
     /**
-     * Returns full record file path that
-     *
-     * @return Return last full record file path which was recorded.
+     * @return file path to last recording
      */
     public String getLastRecordFilePath() {
         return lastRecordFilePath;
     }
 
     /**
-     * Returns state of recorder. If recorder is actal recording return true.
-     *
-     * @return boolean flag. If recorder actual recording then returns true else return false
+     * @return true when currently recording, false otherwise
      */
     public boolean isRecording() {
         return isRecording;
     }
 
     /**
-     * Return amplitude that represents intensity voice. Range value <0,30>
-     *
-     * @return returns double value of intensity voice.
+     * @return amplitude that represents current intensity of voice (value range: <0,30>)
      */
     public double getAmplitude() {
         return amplitude;
@@ -202,7 +195,7 @@ public class Recorder {
     private void writeDataToFile() {
         final byte data[] = new byte[bufferSize];
 
-        filename = getTempFilename();
+        String filename = getTempFilename();
         FileOutputStream os = null;
 
         try {
@@ -330,88 +323,46 @@ public class Recorder {
     }
 
     /**
-     * ConfigurationRecorder class use for congure records params like file prefix name,
-     * records file folders where records are saving, file name date format.
+     * Configures recording file parameters.
      */
     public static class ConfigurationRecorder {
-        private String recordsFolder;
-        private String fileDatePattern;
-        private String filePrefix;
+        private String directory;
+        private String datePattern;
+        private String prefix;
         private String fileName;
 
         /**
-         * Set records file folder that will contain all records.
-         *
-         * @return object builder
+         * @param recordsFolder recording directory
          */
-        public ConfigurationRecorder setRecordsFolder(String recordsFolder) {
-            this.recordsFolder = recordsFolder;
+        public ConfigurationRecorder setDirectory(String recordsFolder) {
+            this.directory = recordsFolder;
             return this;
         }
 
         /**
-         * Set name date pattern. This pattern is middle part of file name.
-         *
-         * @param fileDatePattern Date pattern format same in {@link java.text.DateFormat}
-         * @return {@link Recorder.ConfigurationRecorder}
+         * @param fileDatePattern filename date format ({@link java.text.DateFormat})
          */
-        public ConfigurationRecorder setFileDatePattern(String fileDatePattern) {
-            this.fileDatePattern = fileDatePattern;
+        public ConfigurationRecorder setDatePattern(String fileDatePattern) {
+            this.datePattern = fileDatePattern;
             return this;
         }
 
         /**
-         * Setup file name prefix.
-         *
-         * @return object builder
+         * @param filePrefix filename prefix
          */
-        public ConfigurationRecorder setFilePrefix(String filePrefix) {
-            this.filePrefix = filePrefix;
+        public ConfigurationRecorder setPrefix(String filePrefix) {
+            this.prefix = filePrefix;
             return this;
         }
 
         /**
-         * Returns configuration for {@link Recorder} object.
-         *
-         * @return {@link Recorder.ConfigurationRecorder}
+         * @param fileName alternative file identifier if date pattern is not defined
          */
-        public ConfigurationRecorder getConfiguration() {
-            return this;
-        }
-
-
-        /**
-         * Return records file folder that will contain all records.
-         *
-         * @return Return {@link String} that is path contain records
-         */
-        public String getRecordsFolder() {
-            return TextUtils.isEmpty(recordsFolder) ? "" : recordsFolder;
-        }
-
-        /**
-         * Return date pattern format same in {@link java.text.DateFormat}
-         * which will be used for build record name.
-         *
-         * @return Return {@link String} that is middle part of record name.
-         */
-        public String getFileDatePattern() {
-            return TextUtils.isEmpty(fileDatePattern) ? "" : fileDatePattern;
-        }
-
-        /**
-         * Returns prefix String that will be used in building records name.
-         *
-         * @return Return {@link String} that is first part of record name.
-         */
-        public String getFilePrefix() {
-            return TextUtils.isEmpty(filePrefix) ? "" : filePrefix;
-        }
-
-        public ConfigurationRecorder setFileName(String fileName) {
+        public ConfigurationRecorder setAlternativeId(String fileName) {
             this.fileName = fileName;
             return this;
         }
+
     }
 }
 
