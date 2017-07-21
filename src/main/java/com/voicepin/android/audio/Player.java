@@ -1,4 +1,4 @@
-package app.template.com.voicerecorder;
+package com.voicepin.android.audio;
 
 import android.media.AudioManager;
 import android.media.MediaPlayer;

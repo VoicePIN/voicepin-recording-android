@@ -1,4 +1,4 @@
-package app.template.com.voicerecorder;
+package com.voicepin.android.audio;
 
 /**
  * Created by mcol on 2015-07-27.
